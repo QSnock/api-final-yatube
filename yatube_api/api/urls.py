@@ -10,26 +10,18 @@ router_v1 = DefaultRouter()
 router_v1.register('posts', PostViewSet)
 router_v1.register('groups', GroupViewSet)
 router_v1.register('follow', FollowViewSet, basename='follow')
+router_v1.register(
+    'posts/(?P<post_id>\\d+)/comments',
+    CommentViewSet, basename='post-comments'
+)
+
+jwt_urls = [
+    path('create/', TokenObtainPairView.as_view(), name='jwt_create'),
+    path('refresh/', TokenRefreshView.as_view(), name='jwt_refresh'),
+    path('verify/', TokenVerifyView.as_view(), name='jwt_verify'),
+]
 
 urlpatterns = [
     path('v1/', include(router_v1.urls)),
-    path(
-        'v1/posts/<int:post_id>/comments/',
-        CommentViewSet.as_view({
-            'get': 'list',
-            'post': 'create'
-        })
-    ),
-    path(
-        'v1/posts/<int:post_id>/comments/<int:pk>/',
-        CommentViewSet.as_view({
-            'get': 'retrieve',
-            'put': 'update',
-            'patch': 'partial_update',
-            'delete': 'destroy'
-        })
-    ),
-    path('v1/jwt/create/', TokenObtainPairView.as_view(), name='jwt_create'),
-    path('v1/jwt/refresh/', TokenRefreshView.as_view(), name='jwt_refresh'),
-    path('v1/jwt/verify/', TokenVerifyView.as_view(), name='jwt_verify'),
+    path('v1/jwt/', include(jwt_urls)),
 ]

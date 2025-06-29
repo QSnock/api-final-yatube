@@ -1,79 +1,80 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, mixins
+from rest_framework import viewsets, serializers, mixins
 from rest_framework.permissions import (
     IsAuthenticated, IsAuthenticatedOrReadOnly
 )
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
+from django.db import IntegrityError
 
-from posts.models import Post, Group, Comment, Follow
+from posts.models import Post, Group, Comment
 from .serializers import (
     PostSerializer, GroupSerializer, CommentSerializer, FollowSerializer
 )
 from .permissions import IsAuthorOrReadOnly
 
 
-class ListAsArrayMixin:
-    def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+class BaseViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticatedOrReadOnly, IsAuthorOrReadOnly]
 
 
-class PostViewSet(ListAsArrayMixin, viewsets.ModelViewSet):
+class PostViewSet(BaseViewSet):
     queryset = Post.objects.all()
     serializer_class = PostSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly, IsAuthorOrReadOnly]
+
+    def list(self, request, *args, **kwargs):
+        if 'limit' in request.query_params or 'offset' in request.query_params:
+            return super().list(request, *args, **kwargs)
+        else:
+            self.pagination_class = None
+            queryset = self.filter_queryset(self.get_queryset())
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
-    def list(self, request, *args, **kwargs):
-        if 'limit' in request.query_params or 'offset' in request.query_params:
-            return super(viewsets.ModelViewSet, self).list(
-                request, *args, **kwargs
-            )
-        queryset = self.filter_queryset(self.get_queryset())
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
 
-
-class GroupViewSet(ListAsArrayMixin, viewsets.ReadOnlyModelViewSet):
+class GroupViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
+    pagination_class = None
 
 
-class CommentViewSet(ListAsArrayMixin, viewsets.ModelViewSet):
+class CommentViewSet(BaseViewSet):
     serializer_class = CommentSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly, IsAuthorOrReadOnly]
+    pagination_class = None
+
+    def get_post(self):
+        post_id = self.kwargs.get('post_id')
+        return get_object_or_404(Post, id=post_id)
 
     def get_queryset(self):
-        post_id = self.kwargs.get('post_id')
-        return Comment.objects.filter(post_id=post_id)
+        self.get_post()
+        return Comment.objects.filter(post_id=self.kwargs.get('post_id'))
 
     def perform_create(self, serializer):
-        post_id = self.kwargs.get('post_id')
-        post = get_object_or_404(Post, id=post_id)
+        post = self.get_post()
         serializer.save(author=self.request.user, post=post)
 
-    def perform_update(self, serializer):
-        post_id = self.kwargs.get('post_id')
-        post = get_object_or_404(Post, id=post_id)
-        serializer.save(post=post)
 
-
-class FollowViewSet(ListAsArrayMixin,
-                    mixins.ListModelMixin,
+class FollowViewSet(mixins.ListModelMixin,
                     mixins.CreateModelMixin,
                     viewsets.GenericViewSet):
     serializer_class = FollowSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [SearchFilter]
-    search_fields = ['following__username']
+    permission_classes = (IsAuthenticated,)
+    filter_backends = (SearchFilter,)
+    search_fields = ('following__username',)
+    pagination_class = None
 
     def get_queryset(self):
-        return Follow.objects.filter(user=self.request.user)
+        return self.request.user.follower.all()
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        try:
+            serializer.save(user=self.request.user)
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {'detail': 'Подписка уже существует.'}
+            )
