@@ -1,13 +1,13 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, serializers, mixins
+from rest_framework import viewsets, mixins
 from rest_framework.permissions import (
     IsAuthenticated, IsAuthenticatedOrReadOnly
 )
 from rest_framework.filters import SearchFilter
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
-from django.db import IntegrityError
 
-from posts.models import Post, Group, Comment
+from posts.models import Post, Group
 from .serializers import (
     PostSerializer, GroupSerializer, CommentSerializer, FollowSerializer
 )
@@ -21,6 +21,10 @@ class BaseViewSet(viewsets.ModelViewSet):
 class PostViewSet(BaseViewSet):
     queryset = Post.objects.all()
     serializer_class = PostSerializer
+    pagination_class = LimitOffsetPagination
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
 
     def list(self, request, *args, **kwargs):
         if 'limit' in request.query_params or 'offset' in request.query_params:
@@ -30,9 +34,6 @@ class PostViewSet(BaseViewSet):
             queryset = self.filter_queryset(self.get_queryset())
             serializer = self.get_serializer(queryset, many=True)
             return Response(serializer.data)
-
-    def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
 
 
 class GroupViewSet(viewsets.ReadOnlyModelViewSet):
@@ -51,8 +52,8 @@ class CommentViewSet(BaseViewSet):
         return get_object_or_404(Post, id=post_id)
 
     def get_queryset(self):
-        self.get_post()
-        return Comment.objects.filter(post_id=self.kwargs.get('post_id'))
+        post = self.get_post()
+        return post.comments.all()
 
     def perform_create(self, serializer):
         post = self.get_post()
@@ -72,9 +73,4 @@ class FollowViewSet(mixins.ListModelMixin,
         return self.request.user.follower.all()
 
     def perform_create(self, serializer):
-        try:
-            serializer.save(user=self.request.user)
-        except IntegrityError:
-            raise serializers.ValidationError(
-                {'detail': 'Подписка уже существует.'}
-            )
+        serializer.save(user=self.request.user)
