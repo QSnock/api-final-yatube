@@ -4,8 +4,6 @@ from rest_framework.permissions import (
     IsAuthenticated, IsAuthenticatedOrReadOnly
 )
 from rest_framework.filters import SearchFilter
-from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.response import Response
 
 from posts.models import Post, Group
 from .serializers import (
@@ -21,19 +19,9 @@ class BaseViewSet(viewsets.ModelViewSet):
 class PostViewSet(BaseViewSet):
     queryset = Post.objects.all()
     serializer_class = PostSerializer
-    pagination_class = LimitOffsetPagination
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
-
-    def list(self, request, *args, **kwargs):
-        if 'limit' in request.query_params or 'offset' in request.query_params:
-            return super().list(request, *args, **kwargs)
-        else:
-            self.pagination_class = None
-            queryset = self.filter_queryset(self.get_queryset())
-            serializer = self.get_serializer(queryset, many=True)
-            return Response(serializer.data)
 
 
 class GroupViewSet(viewsets.ReadOnlyModelViewSet):
